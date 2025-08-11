@@ -1,0 +1,11 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+via_ir = true
+
+evm_version = "cancun"
+remappings = ["@exercises/=src/exercises/"]
+
+[fmt]
+line_length = 80
