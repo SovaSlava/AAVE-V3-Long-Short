@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-import {IERC20} from "./interfaces/IERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Math} from "./lib/Math.sol";
 import {ISwapRouter} from "./interfaces/uniswap-v3/ISwapRouter.sol";
 import {IPool} from "./interfaces/aave-v3/IPool.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Test} from "forge-std/Test.sol";
+contract LongShort is Test{
 
-contract LongShort {
-
+    using SafeERC20 for IERC20;
     struct OpenParams {
         address collateralToken;
         uint256 collateralAmount;
@@ -41,10 +43,10 @@ contract LongShort {
         // Check that params.minHealthFactor is greater than 1e18
         require(params.minHealthFactor > 1 ether, "helth factor");
         // Transfer collateral from user
-        IERC20(params.collateralToken).transferFrom(msg.sender, address(this), params.collateralAmount);
+        IERC20(params.collateralToken).safeTransferFrom(msg.sender, address(this), params.collateralAmount);
         // Approve and supply collateral to Aave
         // Send aToken to user
-        IERC20(params.collateralToken).approve(address(pool), params.collateralAmount);
+        IERC20(params.collateralToken).forceApprove(address(pool), params.collateralAmount);
 
         pool.supply({
             asset: params.collateralToken,
@@ -67,7 +69,7 @@ contract LongShort {
         require(helfthFactor > params.minHealthFactor, "min helth factor");
         // Swap borrowed token to collateral token
         // Send swapped token to msg.sender
-        IERC20(params.borrowToken).approve(address(router), params.borrowAmount);
+        IERC20(params.borrowToken).forceApprove(address(router), params.borrowAmount);
 
         uint24 fee = abi.decode(params.swapData, (uint24));
         uint256 amountOut = router.exactInputSingle(
@@ -84,13 +86,13 @@ contract LongShort {
         return amountOut;
     }
 
-    function close(CloseParams memory params) external returns(uint256 collateralWithdrawn, uint256 debtRepaidFromMsgSender, uint256 borrowedLeftover) {
+    function close(CloseParams memory params) external returns(uint256 collateralWithdrawn, uint256 debtRepaidFromMsgSender, uint256 borrowedLeftover, uint256 amountOut) {
         // Transfer collateral from user into this contract
-        IERC20(params.collateralToken).transferFrom(msg.sender, address(this), params.collateralAmount);
-        IERC20(params.collateralToken).approve(address(router), params.collateralAmount);
+        IERC20(params.collateralToken).safeTransferFrom(msg.sender, address(this), params.collateralAmount);
+        IERC20(params.collateralToken).forceApprove(address(router), params.collateralAmount);
         // Swap collateral to borrowed token
         uint24 fee = abi.decode(params.swapData, (uint24));
-        uint256 amountOut = router.exactInputSingle(
+        amountOut = router.exactInputSingle(
             ISwapRouter.ExactInputSingleParams({
                 tokenIn: params.collateralToken,
                 tokenOut: params.borrowToken,
@@ -101,7 +103,7 @@ contract LongShort {
                 sqrtPriceLimitX96: 0
             })
         );
-
+    
         // Repay borrowed token
         // Amount to repay is the minimum of current debt and params.maxDebtToRepay
         // If the amount to repay is greater that the amount swapped,
@@ -110,16 +112,19 @@ contract LongShort {
         uint256 variableDebt = IERC20(reserve.variableDebtTokenAddress).balanceOf(msg.sender);
         uint256 debtBalance = Math.min(variableDebt, params.maxDebtToRepay);
         uint256 repayAmount;
+ 
         if(debtBalance > amountOut) {
-             IERC20(params.borrowToken).transferFrom(msg.sender,address(this), debtBalance-amountOut);
+           
+            IERC20(params.borrowToken).safeTransferFrom(msg.sender,address(this), debtBalance-amountOut);
             repayAmount = debtBalance-amountOut;
         }
 
-        IERC20(params.borrowToken).approve(address(pool), type(uint256).max);
+        IERC20(params.borrowToken).forceApprove(address(pool), type(uint256).max);
     
         // Repay all the debt to Aave V3
         // All the debt can be repaid by setting the amount to repay to a number
         // greater than or equal to the current debt
+      
         uint256 repaid = pool.repay({
             asset: params.borrowToken,
             amount: debtBalance,
@@ -130,7 +135,7 @@ contract LongShort {
 
         reserve = pool.getReserveData(params.collateralToken);
         address aToken = reserve.aTokenAddress;
-        IERC20(aToken).transferFrom(msg.sender, address(this), 
+        IERC20(aToken).safeTransferFrom(msg.sender, address(this), 
             Math.min(IERC20(aToken).balanceOf(msg.sender), 
                      params.maxCollateralToWithdraw
                     )
@@ -140,11 +145,33 @@ contract LongShort {
         // Transfer profit = swapped amount - repaid amount
         uint256 balance = IERC20(params.borrowToken).balanceOf(address(this));
         if(balance > 0) {
-             IERC20(params.borrowToken).transfer(msg.sender, balance);
+             IERC20(params.borrowToken).safeTransfer(msg.sender, balance);
         }
       
         // Return amount of collateral withdrawn,
         // debt repaid and profit from closing this position
-        return(withdrawn, repayAmount, balance );
+        return(withdrawn, repayAmount, balance, amountOut );
+    }
+
+         function formatDecimals(uint256 value, uint8 decimals) internal pure returns (string memory) {
+        uint256 integerPart = value / (10 ** decimals);
+        uint256 fractionalPart = value % (10 ** decimals);
+
+
+        while (fractionalPart > 0 && fractionalPart % 10 == 0) {
+            fractionalPart /= 10;
+        }
+
+        if (fractionalPart == 0) {
+            return string(abi.encodePacked(vm.toString(integerPart)));
+        } else {
+            return string(
+                abi.encodePacked(
+                    vm.toString(integerPart),
+                    ".",
+                    vm.toString(fractionalPart)
+                )
+            );
+        }
     }
 }
