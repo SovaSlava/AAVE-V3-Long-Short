@@ -146,7 +146,7 @@ contract LongShortTest is Test {
                 sqrtPriceLimitX96: 0
             }));
    
-     console.log('Final DAI balance -',IERC20(DAI).balanceOf(address(this)), "DAI");
+     console.log('Final DAI balance -',formatDecimals(IERC20(DAI).balanceOf(address(this)),18), "DAI");
     }
 
 
@@ -177,7 +177,7 @@ contract LongShortTest is Test {
                 sqrtPriceLimitX96: 0
             }));
 
-      console.log('Final DAI balance -',IERC20(DAI).balanceOf(address(this)), "DAI");
+      console.log('Final DAI balance -',formatDecimals(IERC20(DAI).balanceOf(address(this)),18), "DAI");
       
     }
     function test_short_weth() public {
@@ -208,7 +208,7 @@ contract LongShortTest is Test {
         );
        
         console.log("Supply 1000 DAI, borrow 0.1 WETH, swap to", formatDecimals(collateralAmountOut,18),"DAI");
-         console.log("WETH price dropped down");
+        console.log("WETH price dropped down");
       
           // decrease price
         address uniswapPool = IUniswapV3Factory(UNISWAP_V3_FACTORY).getPool(WETH, DAI, UNISWAP_V3_POOL_FEE_DAI_WETH);
@@ -279,7 +279,8 @@ contract LongShortTest is Test {
             balsBefore[1] - debtRepaidFromMsgSender + borrowedLeftover,
             "WETH balance"
         );
-
+        
+        console.log("Swap",formatDecimals(balsAfter[1],18),"WETH to DAI");
         IERC20(WETH).approve(UNISWAP_V3_SWAP_ROUTER_02, balsAfter[1]);
         uint256 amountOut = ISwapRouter(UNISWAP_V3_SWAP_ROUTER_02).exactInputSingle(
             ISwapRouter.ExactInputSingleParams({
